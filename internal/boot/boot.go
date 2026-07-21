@@ -667,6 +667,35 @@ func build(ctx context.Context, opts Options) (*BuildResult, error) {
 		}
 	}
 
+	// Agent identity appendix: inline content or file, appended to the system
+	// prompt so it sits inside the pinned system message (compaction-safe).
+	// REASONIX_APPENDIX_FILE env var overrides the config file path.
+	// Skipped on reassembly reuse: the reused SystemPrompt already carries the
+	// appendix from the build that populated ReuseAssembly, so re-appending
+	// would double it and cold-start the provider's prefix cache.
+	if !canReuseSkills {
+		appendixFile := cfg.Agent.SystemPromptAppendixFile
+		if envFile := os.Getenv("REASONIX_APPENDIX_FILE"); envFile != "" {
+			appendixFile = envFile
+		}
+		if appendixFile != "" {
+			path := appendixFile
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(root, path)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil, fmt.Errorf("system_prompt_appendix_file: %w", err)
+			}
+			if s := strings.TrimSpace(string(data)); s != "" {
+				sysPrompt += "\n\n" + s
+			}
+		}
+		if s := strings.TrimSpace(cfg.Agent.SystemPromptAppendix); s != "" {
+			sysPrompt += "\n\n" + s
+		}
+	}
+
 	reg := tool.NewRegistry()
 	writeRoots := cfg.WriteRootsForRoot(root)
 	writeRoots = appendUniquePaths(writeRoots, additionalDirs...)

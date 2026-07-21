@@ -1557,3 +1557,50 @@ func TestRenderTOMLPersistsSecretsSection(t *testing.T) {
 		t.Fatalf("user-scope render still exposes removed live-redaction setting:\n%s", out)
 	}
 }
+
+func TestRenderTOMLSystemPromptAppendix(t *testing.T) {
+	isolateUserConfigHome(t)
+	cfg := Default()
+	cfg.Agent.SystemPromptAppendix = "You are Rina, a backstage ops leader."
+	cfg.Agent.SystemPromptAppendixFile = "prompts/rina.md"
+
+	out := RenderTOML(cfg)
+	if !strings.Contains(out, `system_prompt_appendix = """`) {
+		t.Fatalf("rendered TOML should contain system_prompt_appendix:\n%s", out)
+	}
+	if !strings.Contains(out, "You are Rina, a backstage ops leader.") {
+		t.Fatalf("rendered TOML should contain the appendix content:\n%s", out)
+	}
+	if !strings.Contains(out, `system_prompt_appendix_file = "prompts/rina.md"`) {
+		t.Fatalf("rendered TOML should contain system_prompt_appendix_file:\n%s", out)
+	}
+}
+
+func TestRenderTOMLSystemPromptAppendixOmitted(t *testing.T) {
+	isolateUserConfigHome(t)
+	cfg := Default()
+	// Both fields unset — should only appear as comments.
+	out := RenderTOML(cfg)
+	agentLines := extractSectionLines(out, "[agent]")
+	for _, line := range agentLines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "system_prompt_appendix") && !strings.HasPrefix(trimmed, "#") {
+			t.Fatalf("unset appendix fields should be commented out, got: %s", line)
+		}
+	}
+}
+
+func TestRenderTOMLProjectDeltaIncludesAppendix(t *testing.T) {
+	isolateUserConfigHome(t)
+	cfg := Default()
+	cfg.Agent.SystemPromptAppendix = "Delta appendix content."
+	cfg.Agent.SystemPromptAppendixFile = "identity.md"
+
+	delta := RenderTOMLProjectDelta(cfg)
+	if !strings.Contains(delta, "system_prompt_appendix") {
+		t.Fatalf("project delta should include system_prompt_appendix:\n%s", delta)
+	}
+	if !strings.Contains(delta, "system_prompt_appendix_file") {
+		t.Fatalf("project delta should include system_prompt_appendix_file:\n%s", delta)
+	}
+}

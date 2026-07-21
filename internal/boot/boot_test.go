@@ -5269,3 +5269,351 @@ func TestBuildKeepsSourceConnectorAndSkillToolsDespiteSafeModeEnv(t *testing.T) 
 		}
 	}
 }
+
+// --- system_prompt_appendix tests ---
+
+func TestBuildSystemPromptAppendixInline(t *testing.T) {
+	isolateConfigHome(t)
+	dir := robustTempDir(t)
+	t.Chdir(dir)
+
+	writeFile(t, dir, "reasonix.toml", `
+default_model = "test-model"
+
+[agent]
+system_prompt = "BASE PROMPT"
+system_prompt_appendix = "You are Rina, a backstage ops leader."
+
+[[providers]]
+name = "test-model"
+kind = "openai"
+base_url = "https://example.invalid"
+model = "x"
+api_key_env = "REASONIX_TEST_KEY_UNSET"
+`)
+
+	ctrl, err := Build(context.Background(), Options{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	defer ctrl.Close()
+
+	sys := systemMessage(ctrl.History())
+	if !strings.Contains(sys, "BASE PROMPT") {
+		t.Fatalf("base prompt missing:\n%s", sys)
+	}
+	if !strings.Contains(sys, "You are Rina, a backstage ops leader.") {
+		t.Fatalf("inline appendix missing from system message:\n%s", sys)
+	}
+	// Appendix must come after the base prompt.
+	if strings.Index(sys, "You are Rina") < strings.Index(sys, "BASE PROMPT") {
+		t.Fatalf("appendix should follow the base prompt:\n%s", sys)
+	}
+}
+
+func TestBuildSystemPromptAppendixEmpty(t *testing.T) {
+	isolateConfigHome(t)
+	dir := robustTempDir(t)
+	t.Chdir(dir)
+
+	writeFile(t, dir, "reasonix.toml", `
+default_model = "test-model"
+
+[agent]
+system_prompt = "BASE PROMPT"
+
+[[providers]]
+name = "test-model"
+kind = "openai"
+base_url = "https://example.invalid"
+model = "x"
+api_key_env = "REASONIX_TEST_KEY_UNSET"
+`)
+
+	ctrl, err := Build(context.Background(), Options{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	defer ctrl.Close()
+
+	sys := systemMessage(ctrl.History())
+	if !strings.Contains(sys, "BASE PROMPT") {
+		t.Fatalf("base prompt missing:\n%s", sys)
+	}
+	// No appendix content should be present.
+	if strings.Contains(sys, "You are Rina") {
+		t.Fatalf("unexpected appendix content in system message:\n%s", sys)
+	}
+}
+
+func TestBuildSystemPromptAppendixEmptyWhitespaceFile(t *testing.T) {
+	isolateConfigHome(t)
+	dir := robustTempDir(t)
+	t.Chdir(dir)
+
+	// A whitespace-only appendix file must be indistinguishable from no
+	// appendix at all — it must not inject a spurious blank section into the
+	// cache-stable system prompt. Build once with the whitespace file, then
+	// rewrite the config to drop the appendix and confirm the prompt is byte-
+	// identical (trimmed) to the appendix-less build.
+	writeFile(t, dir, "prompts/rina.md", "   \n\t\n  ")
+	writeFile(t, dir, "reasonix.toml", `
+default_model = "test-model"
+
+[agent]
+system_prompt = "BASE PROMPT"
+system_prompt_appendix_file = "prompts/rina.md"
+
+[[providers]]
+name = "test-model"
+kind = "openai"
+base_url = "https://example.invalid"
+model = "x"
+api_key_env = "REASONIX_TEST_KEY_UNSET"
+`)
+
+	withAppendix, err := Build(context.Background(), Options{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	sysWith := strings.TrimSpace(systemMessage(withAppendix.History()))
+	withAppendix.Close()
+
+	// Rewrite the same dir without the appendix file and rebuild.
+	writeFile(t, dir, "reasonix.toml", `
+default_model = "test-model"
+
+[agent]
+system_prompt = "BASE PROMPT"
+
+[[providers]]
+name = "test-model"
+kind = "openai"
+base_url = "https://example.invalid"
+model = "x"
+api_key_env = "REASONIX_TEST_KEY_UNSET"
+`)
+	withoutAppendix, err := Build(context.Background(), Options{})
+	if err != nil {
+		t.Fatalf("Build without appendix: %v", err)
+	}
+	sysWithout := strings.TrimSpace(systemMessage(withoutAppendix.History()))
+	withoutAppendix.Close()
+
+	if !strings.Contains(sysWith, "BASE PROMPT") {
+		t.Fatalf("base prompt missing:\n%s", sysWith)
+	}
+	if sysWith != sysWithout {
+		t.Fatalf("whitespace-only appendix changed the system message:\n--- with whitespace appendix ---\n%s\n\n--- without appendix ---\n%s", sysWith, sysWithout)
+	}
+}
+
+func TestBuildSystemPromptAppendixFile(t *testing.T) {
+	isolateConfigHome(t)
+	dir := robustTempDir(t)
+	t.Chdir(dir)
+
+	writeFile(t, dir, "prompts/rina.md", "# Rina Identity\nYou are Rina Rooth, Backstage FreeOps Leader.")
+	writeFile(t, dir, "reasonix.toml", `
+default_model = "test-model"
+
+[agent]
+system_prompt = "BASE PROMPT"
+system_prompt_appendix_file = "prompts/rina.md"
+
+[[providers]]
+name = "test-model"
+kind = "openai"
+base_url = "https://example.invalid"
+model = "x"
+api_key_env = "REASONIX_TEST_KEY_UNSET"
+`)
+
+	ctrl, err := Build(context.Background(), Options{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	defer ctrl.Close()
+
+	sys := systemMessage(ctrl.History())
+	if !strings.Contains(sys, "You are Rina Rooth, Backstage FreeOps Leader.") {
+		t.Fatalf("file appendix content missing from system message:\n%s", sys)
+	}
+	if strings.Index(sys, "Rina Rooth") < strings.Index(sys, "BASE PROMPT") {
+		t.Fatalf("file appendix should follow the base prompt:\n%s", sys)
+	}
+}
+
+func TestBuildSystemPromptAppendixFileRelativePath(t *testing.T) {
+	isolateConfigHome(t)
+	dir := robustTempDir(t)
+	t.Chdir(dir)
+
+	// Create a subdirectory structure to verify relative resolution.
+	writeFile(t, dir, "identity/agent.md", "Relative path identity content.")
+	writeFile(t, dir, "reasonix.toml", `
+default_model = "test-model"
+
+[agent]
+system_prompt = "BASE PROMPT"
+system_prompt_appendix_file = "identity/agent.md"
+
+[[providers]]
+name = "test-model"
+kind = "openai"
+base_url = "https://example.invalid"
+model = "x"
+api_key_env = "REASONIX_TEST_KEY_UNSET"
+`)
+
+	ctrl, err := Build(context.Background(), Options{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	defer ctrl.Close()
+
+	sys := systemMessage(ctrl.History())
+	if !strings.Contains(sys, "Relative path identity content.") {
+		t.Fatalf("relative path appendix not resolved correctly:\n%s", sys)
+	}
+}
+
+func TestBuildSystemPromptAppendixFileMissing(t *testing.T) {
+	isolateConfigHome(t)
+	dir := robustTempDir(t)
+	t.Chdir(dir)
+
+	writeFile(t, dir, "reasonix.toml", `
+default_model = "test-model"
+
+[agent]
+system_prompt = "BASE PROMPT"
+system_prompt_appendix_file = "nonexistent.md"
+
+[[providers]]
+name = "test-model"
+kind = "openai"
+base_url = "https://example.invalid"
+model = "x"
+api_key_env = "REASONIX_TEST_KEY_UNSET"
+`)
+
+	_, err := Build(context.Background(), Options{})
+	if err == nil {
+		t.Fatal("expected error for missing appendix file, got nil")
+	}
+	if !strings.Contains(err.Error(), "nonexistent.md") {
+		t.Fatalf("error should mention the missing file path, got: %v", err)
+	}
+}
+
+func TestBuildSystemPromptAppendixEnvOverride(t *testing.T) {
+	isolateConfigHome(t)
+	dir := robustTempDir(t)
+	t.Chdir(dir)
+
+	// Config points to one file, env var overrides to another.
+	writeFile(t, dir, "config-identity.md", "Config identity (should NOT appear).")
+	writeFile(t, dir, "env-identity.md", "Env identity (SHOULD appear).")
+	writeFile(t, dir, "reasonix.toml", `
+default_model = "test-model"
+
+[agent]
+system_prompt = "BASE PROMPT"
+system_prompt_appendix_file = "config-identity.md"
+
+[[providers]]
+name = "test-model"
+kind = "openai"
+base_url = "https://example.invalid"
+model = "x"
+api_key_env = "REASONIX_TEST_KEY_UNSET"
+`)
+
+	t.Setenv("REASONIX_APPENDIX_FILE", filepath.Join(dir, "env-identity.md"))
+
+	ctrl, err := Build(context.Background(), Options{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	defer ctrl.Close()
+
+	sys := systemMessage(ctrl.History())
+	if !strings.Contains(sys, "Env identity (SHOULD appear).") {
+		t.Fatalf("env override appendix missing:\n%s", sys)
+	}
+	if strings.Contains(sys, "Config identity (should NOT appear).") {
+		t.Fatalf("config file should have been overridden by env var:\n%s", sys)
+	}
+}
+
+func TestBuildSystemPromptAppendixEnvMissing(t *testing.T) {
+	isolateConfigHome(t)
+	dir := robustTempDir(t)
+	t.Chdir(dir)
+
+	writeFile(t, dir, "reasonix.toml", `
+default_model = "test-model"
+
+[agent]
+system_prompt = "BASE PROMPT"
+
+[[providers]]
+name = "test-model"
+kind = "openai"
+base_url = "https://example.invalid"
+model = "x"
+api_key_env = "REASONIX_TEST_KEY_UNSET"
+`)
+
+	t.Setenv("REASONIX_APPENDIX_FILE", filepath.Join(dir, "missing-env-file.md"))
+
+	_, err := Build(context.Background(), Options{})
+	if err == nil {
+		t.Fatal("expected error for missing env appendix file, got nil")
+	}
+	if !strings.Contains(err.Error(), "missing-env-file.md") {
+		t.Fatalf("error should mention the missing file, got: %v", err)
+	}
+}
+
+func TestBuildSystemPromptAppendixBothFileAndInline(t *testing.T) {
+	isolateConfigHome(t)
+	dir := robustTempDir(t)
+	t.Chdir(dir)
+
+	writeFile(t, dir, "identity.md", "File appendix content.")
+	writeFile(t, dir, "reasonix.toml", `
+default_model = "test-model"
+
+[agent]
+system_prompt = "BASE PROMPT"
+system_prompt_appendix = "Inline appendix content."
+system_prompt_appendix_file = "identity.md"
+
+[[providers]]
+name = "test-model"
+kind = "openai"
+base_url = "https://example.invalid"
+model = "x"
+api_key_env = "REASONIX_TEST_KEY_UNSET"
+`)
+
+	ctrl, err := Build(context.Background(), Options{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	defer ctrl.Close()
+
+	sys := systemMessage(ctrl.History())
+	if !strings.Contains(sys, "File appendix content.") {
+		t.Fatalf("file appendix missing:\n%s", sys)
+	}
+	if !strings.Contains(sys, "Inline appendix content.") {
+		t.Fatalf("inline appendix missing:\n%s", sys)
+	}
+	// File appendix comes before inline appendix (deterministic ordering).
+	if strings.Index(sys, "File appendix content.") > strings.Index(sys, "Inline appendix content.") {
+		t.Fatalf("file appendix should precede inline appendix:\n%s", sys)
+	}
+}

@@ -37,6 +37,8 @@ ask_request = true   # notify when a question is waiting
 [agent]
 # system_prompt = "You are ..."   # custom persona/prompt; unset or empty = built-in default
 # system_prompt_file = "prompts/system.md"   # project paths stay in <workspace>; user paths may fall back to <reasonix home>
+# system_prompt_appendix = "You are Rina."   # inline content appended to system prompt (compaction-safe)
+# system_prompt_appendix_file = "prompts/identity.md"   # file appended to system prompt (env: REASONIX_APPENDIX_FILE)
 temperature       = 0.0
 # recovery_model = ""               # optional reviewer for low-risk automatic recovery; falls back to guardian_model then main model
 # reasoning_language = "auto"   # visible reasoning text: auto|zh|en

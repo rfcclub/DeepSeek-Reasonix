@@ -225,6 +225,18 @@ func RenderTOMLForScope(c *Config, scope RenderScope) string {
 	} else {
 		b.WriteString("# system_prompt_file = \"prompts/system.md\"   # project paths stay in <workspace>; user paths may fall back to <reasonix home>\n")
 	}
+	if c.Agent.SystemPromptAppendix != "" {
+		b.WriteString("system_prompt_appendix = \"\"\"\n")
+		b.WriteString(c.Agent.SystemPromptAppendix)
+		b.WriteString("\"\"\"\n")
+	} else {
+		b.WriteString("# system_prompt_appendix = \"\"\"...\"\"\"   # inline content appended to system prompt\n")
+	}
+	if c.Agent.SystemPromptAppendixFile != "" {
+		fmt.Fprintf(&b, "system_prompt_appendix_file = %q\n", c.Agent.SystemPromptAppendixFile)
+	} else {
+		b.WriteString("# system_prompt_appendix_file = \"prompts/identity.md\"   # file appended to system prompt (env: REASONIX_APPENDIX_FILE)\n")
+	}
 	fmt.Fprintf(&b, "temperature       = %s\n", formatFloat(c.Agent.Temperature))
 	if strings.TrimSpace(c.Agent.RecoveryModel) != "" {
 		fmt.Fprintf(&b, "recovery_model = %q   # optional independent reviewer for low-risk automatic recovery\n", c.Agent.RecoveryModel)
@@ -928,6 +940,16 @@ func RenderTOMLProjectDelta(c *Config) string {
 	}
 	if c.Agent.SystemPromptFile != "" && c.Agent.SystemPromptFile != d.Agent.SystemPromptFile {
 		fmt.Fprintf(&agentBuf, "system_prompt_file = %q\n", c.Agent.SystemPromptFile)
+		anyAgent = true
+	}
+	if c.Agent.SystemPromptAppendix != "" && c.Agent.SystemPromptAppendix != d.Agent.SystemPromptAppendix {
+		agentBuf.WriteString("system_prompt_appendix = \"\"\"\n")
+		agentBuf.WriteString(c.Agent.SystemPromptAppendix)
+		agentBuf.WriteString("\"\"\"\n")
+		anyAgent = true
+	}
+	if c.Agent.SystemPromptAppendixFile != "" && c.Agent.SystemPromptAppendixFile != d.Agent.SystemPromptAppendixFile {
+		fmt.Fprintf(&agentBuf, "system_prompt_appendix_file = %q\n", c.Agent.SystemPromptAppendixFile)
 		anyAgent = true
 	}
 	if c.Agent.Temperature != d.Agent.Temperature {

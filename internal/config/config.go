@@ -1259,6 +1259,14 @@ func (c *Config) BashModeForGOOS(goos string) string {
 type AgentConfig struct {
 	SystemPrompt     string `toml:"system_prompt"`
 	SystemPromptFile string `toml:"system_prompt_file"`
+	// SystemPromptAppendix is inline content appended to the assembled system
+	// prompt after all other sections (policies, memory, skills). It sits inside
+	// the system message, which is pinned by compaction.
+	SystemPromptAppendix string `toml:"system_prompt_appendix"`
+	// SystemPromptAppendixFile reads a file and appends its content to the
+	// assembled system prompt. The path resolves relative to the project root.
+	// Overridden by the REASONIX_APPENDIX_FILE environment variable.
+	SystemPromptAppendixFile string `toml:"system_prompt_appendix_file"`
 	// Deprecated compatibility fields. Old TOML and desktop clients may still
 	// send them, but config loading normalizes both to zero and rendering omits
 	// them. One-off CLI and unattended bot limits remain separate controls.
